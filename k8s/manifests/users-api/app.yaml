@@ -8,7 +8,7 @@ spec:
     server: https://kubernetes.default.svc
     namespace: default
   source:
-    repoURL: https://github.com/2xkl/sec-ms-platform
+    repoURL: https://github.com/2xkl/azure-microservices-platform
     path: k8s/manifests/users-api
     targetRevision: f/infra_cleanup
   project: default
