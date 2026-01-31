@@ -1,124 +1,89 @@
-utils
-https://aex.dev.azure.com/me
+# Azure Microservices Platform
 
-1 
-Run local backend-storage or
-Run pipeline be-storage-pipeline.yml that will provision
-- storage for tfstates
-- keyvault for service principal details
-- assign access for serviceconnection to keyvault and owner
+Azure-based microservices platform with AKS, ArgoCD GitOps, and modular Terraform infrastructure.
 
-require parameters:
-Service Connection Name
-Service Connection Object Id
-Admin Object Id
-Subscription Id
+## Architecture
 
-2
+| Layer | Technology |
+|-------|-----------|
+| IaC | Terraform (modular) + Azure DevOps Pipelines |
+| Compute | Azure Kubernetes Service (AKS) |
+| Registry | Azure Container Registry (ACR) |
+| Secrets | Azure Key Vault |
+| TF State | Azure Storage Account (remote backend) |
+| GitOps | ArgoCD (auto-sync, prune, self-heal) |
+| Ingress | NGINX Ingress Controller |
 
-Create Service principal for terraform
-az ad sp create-for-rbac --name "SP_KK" --role contributor --scopes /subscriptions/$subscriptionId
+## Project Structure
 
-3
+```
+infra/
+  backend-storage/        # Terraform state backend (Storage Account + KeyVault)
+  core-infra/             # AKS cluster + ACR provisioning
+    parameters/
+      dev.tfvars
+      prod.tfvars
+  tf-modules/             # Reusable Terraform modules
+    acr/
+    aks/
+    keyvault/
+    keyvault-access-policy/
+    resource-group/
+    storage-account/
+    storage-account-container/
 
-Provision service principal and storage data to keyvault
+k8s/
+  manifests/
+    argo/                 # ArgoCD Ingress (secms.local)
+    users-api/            # Deployment, Service, Ingress + ArgoCD Application
 
-az keyvault secret set --vault-name keyvault --name ARMCLIENTID --value ""
-az keyvault secret set --vault-name keyvault --name ARMCLIENTSECRET --value ""
-az keyvault secret set --vault-name keyvault --name ARMSUBSCRIPTIONID --value ""
-az keyvault secret set --vault-name keyvault --name ARMTENANTID --value ""
-az keyvault secret set --vault-name keyvault --name ARMACCESSKEY --value ""
+services/
+  users-api/              # Spring Boot 3.5 / Java 17 REST API
+```
 
-Setup storage for terraform state
+## Services
 
-helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+### users-api
 
-provision tenant id
-provision subscription id
-service_connection_object_id
+Spring Boot application exposing a `GET /api/users` endpoint. Containerized with OpenJDK 17, built via Azure DevOps pipeline, pushed to ACR, and deployed to AKS through ArgoCD.
 
-+
+## Setup
 
-argocd handler
-kubectl create namespace argocd
+### 1. Bootstrap Terraform Backend
+
+Run the `backend-storage` pipeline to create:
+- Resource Group
+- Storage Account + Container (TF state)
+- Key Vault (ARM credentials)
+
+### 2. Create Service Principal
+
+```bash
+az ad sp create-for-rbac --name "sp-terraform" --role Contributor \
+  --scopes /subscriptions/<SUBSCRIPTION_ID>
+```
+
+Store the credentials (`ARM_CLIENT_ID`, `ARM_CLIENT_SECRET`, `ARM_TENANT_ID`, `ARM_SUBSCRIPTION_ID`, `ARM_ACCESS_KEY`) in Key Vault.
+
+### 3. Provision Infrastructure
+
+Run the `core-infra` pipeline to create AKS and ACR.
+
+### 4. Deploy ArgoCD + NGINX Ingress
+
+```bash
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
-kubectl port-forward svc/argocd-server -n argocd 8080:443
+helm install ingress-nginx ingress-nginx/ingress-nginx
+```
 
+### 5. Deploy Application
 
-helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-helm repo update
+ArgoCD watches this repo and auto-syncs the `users-api` manifests to the cluster.
 
-helm install nginx-ingress ingress-nginx/ingress-nginx \
-  --create-namespace \
-  --namespace ingress-nginx
+## Environments
 
-minikube service nginx-ingress-controller -n ingress-nginx --url
-
-kubectl port-forward svc/argocd-server -n argocd 8080:443
-  164  curl http://users-api.local
-  165  kubectl logs -l app=ingress-nginx --tail=100
-  166  kubectl get pods
-  167  kubectl get ingress
-  168  curl http://users-api.local
-  169  kubectl port-forward svc/users 8080:80
-  170  kubectl get pods -n ingress-nginx
-  171  kubectl get ingress
-  172  kubectl describe ingress users-api-ingress
-  173  kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8080:80
-  174  kubectl get services
-  175  kubectl get services --all-namespaces
-  176  kubectl port-forward -n ingress-nginx svc/nginx-ingress-ingress-nginx-controller 8080:80
-  177  kubectl logs -n ingress-nginx nginx-ingress-ingress-nginx-controller 
-  178  kubectl get pod -n ingress-nginx
-  179  kubectl logs -n ingress-nginxx nginx-ingress-ingress-nginx-controller-75fc9f4654-gnvlf
-  180  kubectl logs -n ingress-nginx nginx-ingress-ingress-nginx-controller-75fc9f4654-gnvlf
-  181  history
-  182  curl http://users-api.local
-  183  kubectl logs -n ingress-nginx nginx-ingress-ingress-nginx-controller-75fc9f4654-gnvlf
-  184  curl http://users-api.local
-  185  kubectl get pods -n ingress-nginx
-  186  nslookup users-api.local
-  187  kubectl describe ingress users-api-ingress
-  188  kubectl get services --all-namespaces
-  189  kubectl get svc -n ingress-nginx
-  190  kubectl expose pod nginx-ingress-ingress-nginx-controller --name=nginx-ingress-controller --type=NodePort --port=80 --target-port=80 -n ingress-nginx
-  191  kubectl get pods -n ingress-nginx
-  192  kubectl expose deployment nginx-ingress-ingress-nginx-controller --name=nginx-ingress-controller --type=NodePort --port=80 --target-port=80 -n ingress-nginx
-  193  kubectl get svc -n ingress-nginx
-  194  minikube ip
-  195  sudo minikube ip
-  196  kubectl get services
-  197  kubectl delete service hello
-  198  kubectl get pods
-  199  kubectl get deploy
-  200  kubectl delete deploy hello
-  201  kubectl get svc users
-  202  nslookup users-api.local
-  203  kubectl get pods -n ingress-nginx
-  204  kubectl logs -n ingress-nginx nginx-ingress-ingress-nginx-controller-75fc9f4654-gnvlf
-  205  kubectl get svc -n ingress-nginx
-  206  curl http://users-api.local
-  207  curl http://192.168.49.2:31725 
-  208  kubectl get svc -n ingress-nginx
-  209  curl http://10.108.33.188
-  210  curl http://10.108.33.188/api/uses
-  211  curl http://10.108.33.188/api/users
-  212  curl users-api.local
-  213  curl users-api.local/api/users
-  214  kubectl get svc -n argocd
-  215  ls
-  216  cd k8s/
-  217  cd manifests/
-  218  cd argo/
-  219  kubectl apply -f ingress.yaml 
-  220  curl users-api.local/api/users
-  221  curl users-api.
-  222  curl argocd.local
-  223  history
-
-X.
-
-fix access policies
-
-argocd app create users-api   --repo https://github.com/2xkl/sec-ms-platform   --path k8s/manifests/users-api   --dest-server https://kubernetes.default.svc   --dest-namespace default   --revision f/infra_cleanup 
+| Environment | AKS Nodes | VM Size |
+|-------------|-----------|---------|
+| dev | 2 | Standard_DS2_v2 |
+| prod | TBD | TBD |
